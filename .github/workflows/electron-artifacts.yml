@@ -33,10 +33,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
 
-      - name: Install dependencies
+      - name: Install dependencies (lockfile)
+        if: ${{ hashFiles('package-lock.json') != '' }}
         run: npm ci
+
+      - name: Install dependencies (fallback)
+        if: ${{ hashFiles('package-lock.json') == '' }}
+        run: npm install
 
       - name: Build distributables
         run: npm run dist
