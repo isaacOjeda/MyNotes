@@ -1,0 +1,120 @@
+name: Electron Artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-artifacts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build distributables
+        run: npm run dist
+
+      - name: Validate .dmg exists (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          count=0
+          if [ -d dist ]; then
+            count=$((count + $(find dist -type f -name "*.dmg" | wc -l)))
+          fi
+          if [ -d release ]; then
+            count=$((count + $(find release -type f -name "*.dmg" | wc -l)))
+          fi
+          if [ "$count" -lt 1 ]; then
+            echo "ERROR: No .dmg files found in dist/ or release/."
+            exit 1
+          fi
+
+      - name: Validate .exe exists (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $count = 0
+          if (Test-Path "dist") {
+            $count += (Get-ChildItem -Path "dist" -Recurse -File -Filter "*.exe" | Measure-Object).Count
+          }
+          if (Test-Path "release") {
+            $count += (Get-ChildItem -Path "release" -Recurse -File -Filter "*.exe" | Measure-Object).Count
+          }
+          if ($count -lt 1) {
+            Write-Error "No .exe files found in dist/ or release/."
+            exit 1
+          }
+
+      - name: Validate .AppImage exists (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          count=0
+          if [ -d dist ]; then
+            count=$((count + $(find dist -type f -name "*.AppImage" | wc -l)))
+          fi
+          if [ -d release ]; then
+            count=$((count + $(find release -type f -name "*.AppImage" | wc -l)))
+          fi
+          if [ "$count" -lt 1 ]; then
+            echo "ERROR: No .AppImage files found in dist/ or release/."
+            exit 1
+          fi
+
+      - name: Upload macOS artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.os }}
+          path: |
+            dist/**/*.dmg
+            release/**/*.dmg
+          if-no-files-found: error
+
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.os }}
+          path: |
+            dist/**/*.exe
+            release/**/*.exe
+          if-no-files-found: error
+
+      - name: Upload Ubuntu artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.os }}
+          path: |
+            dist/**/*.AppImage
+            release/**/*.AppImage
+          if-no-files-found: error
